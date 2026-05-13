@@ -1,7 +1,7 @@
 {
-  "tag": "v1.9.23",
+  "tag": "$.tag_name)",
   "status": "stable",
-  "published_at": "2026-05-12T13:14:58Z",
+  "published_at": "$.published_at)",
   "filter_pattern": "",
-  "updated_at": "2026-05-13T00:17:19Z"
+  "updated_at": "2026-05-13T00:35:27Z"
 }
