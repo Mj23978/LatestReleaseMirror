@@ -1,8 +1,6 @@
 name: Sync latest releases & update README
 
 on:
-  # schedule:
-  #   - cron: '0 */12 * * *'
   workflow_dispatch:
 
 concurrency:
@@ -18,7 +16,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 1
+          fetch-depth: 0 # CRITICAL CHANGE: Must be 0 to fetch all tags/history
 
       - name: Configure git
         run: |
@@ -28,7 +26,6 @@ jobs:
       # -------------------- CLEANUP ORPHANED REPOS & MISMATCHED ASSETS --------------------
       - name: Cleanup orphaned repos and mismatched assets
         run: |
-          # Load expected repos from repos.txt
           declare -A EXPECTED_REPOS
           declare -A FILTERS
           while IFS='|' read -r repo_path filter_pattern; do
@@ -38,7 +35,6 @@ jobs:
             FILTERS["$repo_path"]="$filter_pattern"
           done < repos.txt
 
-          # 1) Delete entire folders for repos no longer in repos.txt
           if [ -d releases ]; then
             find releases -type f -name ".version" -printf "%h\n" | sort -u | while read -r repo_dir; do
               parent=$(basename "$(dirname "$repo_dir")")
@@ -46,43 +42,37 @@ jobs:
               full_repo="$parent/$repo"
               if [ -z "${EXPECTED_REPOS[$full_repo]}" ]; then
                 echo "Removing orphaned repository: releases/$parent/$repo"
-                git rm -rf "$repo_dir"
+                git rm -rf "$repo_dir" 2>/dev/null || true
               fi
             done
           fi
 
-          # 2) For each expected repo, delete assets that no longer match the current filter
           for full_repo in "${!EXPECTED_REPOS[@]}"; do
             owner="${full_repo%%/*}"
             repo="${full_repo#*/}"
             repo_dir="releases/$owner/$repo"
-            if [ ! -d "$repo_dir" ]; then
-              continue
-            fi
+            if [ ! -d "$repo_dir" ]; then continue; fi
+            
             current_filter="${FILTERS[$full_repo]}"
-            if [ -z "$current_filter" ]; then
-              continue
-            fi
-            # Delete assets that do NOT match the current filter
+            if [ -z "$current_filter" ]; then continue; fi
+
             find "$repo_dir" -type f ! -name ".version" ! -name "release.json" ! -name ".filter" -printf "%f\n" | while read -r asset; do
               if ! echo "$asset" | grep -qiE "$current_filter"; then
                 echo "  Deleting mismatched asset: $repo_dir/$asset"
-                git rm "$repo_dir/$asset"
+                git rm "$repo_dir/$asset" 2>/dev/null || true
               fi
             done
           done
 
-          # Commit all deletions in one commit (clean and safe)
           git add -A
-          git diff --staged --quiet || git commit -m "Cleanup: remove orphaned repos and mismatched assets"
-          git push || echo "Push failed (maybe nothing to push)"
+          git diff --staged --quiet || (git commit -m "Cleanup: remove orphaned repos and mismatched assets" && git push)
 
-      # -------------------- SYNC RELEASES --------------------
-      - name: Sync releases
+      # -------------------- SYNC RELEASES (WITH PRE-RELEASE SUPPORT) --------------------
+      - name: Sync releases & Pre-releases
         run: |
           set -e
           trap 'echo "Error on line $LINENO, exit code $?"' ERR
-
+          
           git pull --rebase origin HEAD
 
           if [ ! -f repos.txt ]; then
@@ -103,64 +93,112 @@ jobs:
             target_dir="releases/$owner/$repo_name"
             mkdir -p "$target_dir"
 
-            latest_json=$(curl -s --fail "https://api.github.com/repos/$repo_path/releases/latest")
-            if echo "$latest_json" | grep -q '"message": "Not Found"'; then
-              echo "  No releases found, skipping."
+            # Fetch all releases sorted by published_at (desc) to get latest first, then pre-releases
+            echo "  Fetching available releases..."
+            
+            # Create a temp list of releases matching the filter
+            tmp_list=$(mktemp)
+            curl -s --fail "https://api.github.com/repos/$repo_path/releases" \
+              | jq -r --arg pat "$filter_pattern" \
+                '.[] | select(.assets != null and (.tag_name | test($pat; "i"))) | "$.tag_name)|$.published_at)|$.prerelease)"' \
+            > "$tmp_list"
+
+            if [ ! -s "$tmp_list" ]; then
+              echo "  No matching releases found."
+              rm "$tmp_list"
               continue
             fi
 
-            tag=$(echo "$latest_json" | jq -r '.tag_name')
-            prerelease=$(echo "$latest_json" | jq -r '.prerelease')
-            date_raw=$(echo "$latest_json" | jq -r '.published_at')
-            status="stable"
-            [[ "$prerelease" == "true" ]] && status="prerelease"
+            # Iterate through each release line (Tag|Date|IsPrerelease)
+            while IFS='|' read -r tag date_raw is_prerelease; do
+              
+              current_version=""
+              if [ -f "$target_dir/.version" ]; then
+                current_version=$(cat "$target_dir/.version")
+              fi
+              stored_filter=""
+              if [ -f "$target_dir/.filter" ]; then
+                stored_filter=$(cat "$target_dir/.filter")
+              fi
 
-            # Check stored version and filter
-            current_version=""
-            if [ -f "$target_dir/.version" ]; then
-              current_version=$(cat "$target_dir/.version")
-            fi
-            stored_filter=""
-            if [ -f "$target_dir/.filter" ]; then
-              stored_filter=$(cat "$target_dir/.filter")
-            fi
+              status="stable"
+              [[ "$is_prerelease" == "true" ]] && status="prerelease"
 
-            # Force re-download if filter changed OR version changed
-            if [ "$current_version" != "$tag" ] || [ "$stored_filter" != "$filter_pattern" ]; then
-              echo "  New release: $tag (previous: $current_version) or filter changed"
-              # Delete all assets except .version and .filter (they will be overwritten)
-              find "$target_dir" -type f ! -name '.version' ! -name '.filter' -delete 2>/dev/null || true
+              # Logic: Download if version changed OR filter changed
+              if [ "$current_version" != "$tag" ] || [ "$stored_filter" != "$filter_pattern" ]; then
+                
+                echo "  Processing Release: $tag ($status)"
+                
+                # Clean previous assets for this repo so we don't mix versions
+                find "$target_dir" -type f ! -name '.version' ! -name '.filter' -delete 2>/dev/null || true
 
-              echo "  Downloading matching assets (skipping >100 MB)..."
-              while read -r url; do
-                filename=$(basename "$url")
-                size=$(curl -sL -I "$url" | grep -i content-length | tail -1 | awk '{print $2}' | tr -d '\r')
-                if [ -n "$size" ] && [ "$size" -gt 104857600 ]; then
-                  echo "    SKIP $filename – $size bytes (>100 MB)"
-                  continue
-                fi
-                echo "    Downloading $filename"
-                wget -q --show-progress "$url" -P "$target_dir"
-              done < <(curl -s "https://api.github.com/repos/$repo_path/releases/tags/$tag" \
-                | jq -r --arg pat "$filter_pattern" '.assets[].browser_download_url | select(test($pat; "i"))')
+                echo "  Downloading matching assets..."
+                while read -r url; do
+                  filename=$(basename "$url")
+                  
+                  size=$(curl -sL -I "$url" | grep -i content-length | tail -1 | awk '{print $2}' | tr -d '\r')
+                  
+                  # Check size before download to decide if splitting is needed
+                  if [ -n "$size" ] && [ "$size" -gt 104857600 ]; then
+                    echo "    File $filename is ${size} bytes (>100 MB) – will split after download"
+                  fi
+                  
+                  wget -q --show-progress "$url" -P "$target_dir"
 
-              echo "$tag" > "$target_dir/.version"
-              echo "$filter_pattern" > "$target_dir/.filter"
+                  # --- SPLITTING LOGIC (Same as original) ---
+                  filepath="$target_dir/$filename"
+                  if [ -f "$filepath" ]; then
+                    file_size=$(stat -c%s "$filepath" 2>/dev/null || stat -f%z "$filepath" 2>/dev/null)
+                    if [ -n "$file_size" ] && [ "$file_size" -gt 104857600 ]; then
+                      echo "  Splitting $filename into 90MB parts..."
+                      (
+                        cd "$target_dir"
+                        # Use --numeric-suffixes=1 if available
+                        if split --help 2>&1 | grep -q -- "--numeric-suffixes"; then
+                          split -b 90m --numeric-suffixes=1 -a 3 "$filename" "${filename}."
+                        else
+                          split -b 90m -d -a 3 "$filename" "${filename}."
+                          files=($(ls "${filename}."??? | sort))
+                          for i in "${!files[@]}"; do
+                            new=$(printf "%s.%03d" "$filename" $((i+1)))
+                            mv "${files[$i]}" "$new"
+                          done
+                        fi
+                        
+                        if ls "${filename}."??? 1>/dev/null 2>&1; then
+                          rm "$filename"
+                          echo "  Split done. Parts: $(ls "${filename}."??? | wc -l) files"
+                        else
+                          echo "  Splitting failed for $filename"
+                        fi
+                      ) || echo "  Splitting failed for $filename"
+                    fi
+                  fi
+                done < <(curl -s "https://api.github.com/repos/$repo_path/releases/tags/$tag" \
+                  | jq -r --arg pat "$filter_pattern" '.assets[].browser_download_url | select(test($pat; "i"))')
 
-              printf '{\n' > "$target_dir/release.json"
-              printf '  "tag": "%s",\n' "$tag" >> "$target_dir/release.json"
-              printf '  "status": "%s",\n' "$status" >> "$target_dir/release.json"
-              printf '  "published_at": "%s",\n' "$date_raw" >> "$target_dir/release.json"
-              printf '  "filter_pattern": "%s",\n' "$filter_pattern" >> "$target_dir/release.json"
-              printf '  "updated_at": "%s"\n' "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" >> "$target_dir/release.json"
-              printf '}\n' >> "$target_dir/release.json"
+                # Update metadata for THIS release
+                echo "$tag" > "$target_dir/.version"
+                echo "$filter_pattern" > "$target_dir/.filter"
 
-              git add "$target_dir"
-              git commit -m "Update $repo_path to $tag (filter: $filter_pattern)"
-              echo "  Committed locally: $repo_path -> $tag"
-            else
-              echo "  Already up to date and filter unchanged: $tag"
-            fi
+                printf '{\n' > "$target_dir/release.json"
+                printf '  "tag": "%s",\n' "$tag" >> "$target_dir/release.json"
+                printf '  "status": "%s",\n' "$status" >> "$target_dir/release.json"
+                printf '  "published_at": "%s",\n' "$date_raw" >> "$target_dir/release.json"
+                printf '  "filter_pattern": "%s",\n' "$filter_pattern" >> "$target_dir/release.json"
+                printf '  "updated_at": "%s"\n' "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" >> "$target_dir/release.json"
+                printf '}\n' >> "$target_dir/release.json"
+
+              else
+                echo "  Already up to date: $tag"
+              fi
+            done < "$tmp_list"
+            
+            rm "$tmp_list"
+
+            git add "$target_dir"
+            git diff --staged --quiet || (git commit -m "Update $repo_path releases ($status) to $tag" && echo "  Committed locally")
+
           done
 
           git push
@@ -169,28 +207,36 @@ jobs:
       # -------------------- UPDATE README --------------------
       - name: Update README between markers
         run: |
-          # If README.md does not exist, create it from docs/README.fa.md
           if [ ! -f README.md ]; then
             if [ ! -f docs/README.fa.md ]; then
-              echo "ERROR: docs/README.fa.md not found – cannot create README.md"
+              echo "ERROR: docs/README.fa.md not found"
               exit 1
             fi
             cp docs/README.fa.md README.md
-            # Ensure markers exist (add them if missing)
             if ! grep -q "<!-- RELEASES_START -->" README.md; then
               printf '\n<!-- RELEASES_START -->\n' >> README.md
               printf '<!-- RELEASES_END -->\n' >> README.md
             fi
+          else
+             # Ensure markers exist for existing file
+             if ! grep -q "<!-- RELEASES_START -->" README.md; then
+                printf '\n<!-- RELEASES_START -->\n' >> README.md
+                printf '<!-- RELEASES_END -->\n' >> README.md
+              fi
           fi
 
-          # Ensure markers exist (also for existing README.md)
-          if ! grep -q "<!-- RELEASES_START -->" README.md; then
-            printf '\n<!-- RELEASES_START -->\n' >> README.md
-            printf '<!-- RELEASES_END -->\n' >> README.md
-          fi
+          declare -A PART_COUNTS
+          while read -r asset_path; do
+            asset=$(basename "$asset_path")
+            [[ "$asset" == ".version" || "$asset" == "release.json" || "$asset" == ".filter" ]] && continue
+            if [[ "$asset" =~ \.[0-9]{3}$ ]]; then
+              base="${asset%.???}"
+              PART_COUNTS["$base"]=$(( ${PART_COUNTS["$base"]} + 1 ))
+            fi
+          done < <(find releases -type f)
 
           TABLE=$(mktemp)
-          first=true
+          first_repo=true
           find releases -type f -name ".version" -printf "%h\n" | sort | while read -r repo_dir; do
             asset_count=$(find "$repo_dir" -type f ! -name ".version" ! -name "release.json" ! -name ".filter" | wc -l)
             [ "$asset_count" -eq 0 ] && continue
@@ -201,12 +247,12 @@ jobs:
             url="https://github.com/$owner/$repo"
             anchor=$(echo "${owner}--${repo}" | tr '[:upper:]' '[:lower:]')
 
-            if [ "$first" = false ]; then
+            if [ "$first_repo" = false ]; then
               echo "" >> "$TABLE"
               echo "---" >> "$TABLE"
               echo "" >> "$TABLE"
             fi
-            first=false
+            first_repo=false
 
             echo "<div id=\"$anchor\"></div>" >> "$TABLE"
             echo "" >> "$TABLE"
@@ -217,17 +263,30 @@ jobs:
             echo "| File | Size | Download |" >> "$TABLE"
             echo "|------|------|----------|" >> "$TABLE"
 
-            find "$repo_dir" -type f ! -name ".version" ! -name "release.json" ! -name ".filter" -printf "%f\n" | sort | while read -r asset; do
+            find "$repo_dir" -type f ! -name ".version" ! -name "release.json" ! -name ".filter" -printf "%f\n" | sort -V | while read -r asset; do
               asset_path="$repo_dir/$asset"
               size=$(stat -c%s "$asset_path" 2>/dev/null || stat -f%z "$asset_path" 2>/dev/null)
+              
               if [ "$size" -lt 1048576 ]; then
                 s="$((size/1024)) KB"
               else
                 sm=$(echo "scale=1; $size / 1048576" | bc)
                 s="${sm} MB"
               fi
+              
               link="https://raw.githubusercontent.com/${{ github.repository }}/main/$asset_path"
-              echo "| \`$asset\` | $s | [⬇️ Download]($link) |" >> "$TABLE"
+
+              if [[ "$asset" =~ \.[0-9]{3}$ ]]; then
+                base="${asset%.???}"
+                total_parts=${PART_COUNTS["$base"]}
+                part_num=${asset##*.}
+                part_num=$((10#$part_num))
+                display_name="$base (part $part_num of $total_parts)"
+              else
+                display_name="$asset"
+              fi
+
+              echo "| \`$display_name\` | $s | [⬇️ Download]($link) |" >> "$TABLE"
             done
           done
 
@@ -239,5 +298,4 @@ jobs:
           ' README.md > README.tmp && mv README.tmp README.md
 
           git add README.md
-          git diff --staged --quiet || git commit -m "Update README between markers"
-          git push
+          git diff --staged --quiet || (git commit -m "Update README between markers" && git push)
