@@ -12,14 +12,9 @@ NullLatency/FlowDriver|windows-amd64
 # 3. Mix of keywords and file extensions (note escaping of dots)
 SagerNet/sing-box|windows-amd64|arm64-v8a.apk
 
-# 4. Only specific file extensions (use .dmg and .exe – backslashes for literal dot)
-KaringX/karing|\.exe
-
 # 5. Disable a line by commenting it with #
 masterking32/MasterDnsVPN|Client_Windows_AMD64.zip
 
 2dust/v2rayNG|\arm64-v8a.apk
-
-2dust/v2rayN|\windows
-
+ajavadinezhad/zyrln
 ThisIsDara/mhr-cfw-go
