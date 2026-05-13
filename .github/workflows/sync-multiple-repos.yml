@@ -1,4 +1,4 @@
-name: Sync latest releases & update README
+name: Sync latest releases & update README (Fixed)
 
 on:
   workflow_dispatch:
@@ -16,7 +16,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0 # CRITICAL CHANGE: Must be 0 to fetch all tags/history
+          fetch-depth: 0 # Must be 0 to see all tags/history
 
       - name: Configure git
         run: |
@@ -67,7 +67,7 @@ jobs:
           git add -A
           git diff --staged --quiet || (git commit -m "Cleanup: remove orphaned repos and mismatched assets" && git push)
 
-      # -------------------- SYNC RELEASES (WITH PRE-RELEASE SUPPORT) --------------------
+      # -------------------- SYNC RELEASES (FIXED LOGIC) --------------------
       - name: Sync releases & Pre-releases
         run: |
           set -e
@@ -93,23 +93,31 @@ jobs:
             target_dir="releases/$owner/$repo_name"
             mkdir -p "$target_dir"
 
-            # Fetch all releases sorted by published_at (desc) to get latest first, then pre-releases
+            # 1. Fetch ALL releases for this repo sorted by date
             echo "  Fetching available releases..."
+            all_releases_json=$(curl -s --fail "https://api.github.com/repos/$repo_path/releases")
             
-            # Create a temp list of releases matching the filter
-            tmp_list=$(mktemp)
-            curl -s --fail "https://api.github.com/repos/$repo_path/releases" \
-              | jq -r --arg pat "$filter_pattern" \
-                '.[] | select(.assets != null and (.tag_name | test($pat; "i"))) | "$.tag_name)|$.published_at)|$.prerelease)"' \
-            > "$tmp_list"
-
-            if [ ! -s "$tmp_list" ]; then
-              echo "  No matching releases found."
-              rm "$tmp_list"
+            # Check if any releases exist at all
+            if [ "$all_releases_json" = '{"message":"Not Found"}' ]; then
+              echo "  No releases found for $repo_path, skipping."
               continue
             fi
 
-            # Iterate through each release line (Tag|Date|IsPrerelease)
+            # Filter releases based on the pattern (e.g., matching tag names or assets)
+            # We create a temporary list of "Tag|Date|IsPrerelease" lines
+            tmp_tags=$(mktemp)
+            
+            echo "$all_releases_json" | jq -r --arg pat "$filter_pattern" \
+              '.[] | select(.tag_name != null and .assets != null and (.tag_name | test($pat; "i")) or (any(.assets[].name? // empty | test($pat; "i"))) ) \
+              | "$.tag_name)|$.published_at)|$.prerelease)"' > "$tmp_tags"
+
+            if [ ! -s "$tmp_tags" ]; then
+              echo "  No releases match the filter pattern, skipping."
+              rm "$tmp_tags"
+              continue
+            fi
+
+            # 2. Iterate through each release found
             while IFS='|' read -r tag date_raw is_prerelease; do
               
               current_version=""
@@ -124,21 +132,27 @@ jobs:
               status="stable"
               [[ "$is_prerelease" == "true" ]] && status="prerelease"
 
-              # Logic: Download if version changed OR filter changed
+              # Only process if version changed or filter changed
               if [ "$current_version" != "$tag" ] || [ "$stored_filter" != "$filter_pattern" ]; then
-                
                 echo "  Processing Release: $tag ($status)"
                 
-                # Clean previous assets for this repo so we don't mix versions
+                # Clean previous assets for this repo before re-downloading
                 find "$target_dir" -type f ! -name '.version' ! -name '.filter' -delete 2>/dev/null || true
 
                 echo "  Downloading matching assets..."
-                while read -r url; do
+                
+                # Get list of asset URLs for THIS specific tag
+                urls=$(echo "$all_releases_json" | jq -r --arg pat "$filter_pattern" \
+                  ".[] | select(.tag_name == \"$tag\") | .assets[].browser_download_url | select(test($pat; \"i\"))")
+
+                while IFS= read -r url; do
+                  [ -z "$url" ] && continue
+                  
                   filename=$(basename "$url")
                   
+                  # Check size before download to decide on splitting
                   size=$(curl -sL -I "$url" | grep -i content-length | tail -1 | awk '{print $2}' | tr -d '\r')
                   
-                  # Check size before download to decide if splitting is needed
                   if [ -n "$size" ] && [ "$size" -gt 104857600 ]; then
                     echo "    File $filename is ${size} bytes (>100 MB) – will split after download"
                   fi
@@ -174,8 +188,7 @@ jobs:
                       ) || echo "  Splitting failed for $filename"
                     fi
                   fi
-                done < <(curl -s "https://api.github.com/repos/$repo_path/releases/tags/$tag" \
-                  | jq -r --arg pat "$filter_pattern" '.assets[].browser_download_url | select(test($pat; "i"))')
+                done <<< "$urls"
 
                 # Update metadata for THIS release
                 echo "$tag" > "$target_dir/.version"
@@ -192,17 +205,23 @@ jobs:
               else
                 echo "  Already up to date: $tag"
               fi
-            done < "$tmp_list"
+            done < "$tmp_tags"
             
-            rm "$tmp_list"
+            rm "$tmp_tags"
 
             git add "$target_dir"
-            git diff --staged --quiet || (git commit -m "Update $repo_path releases ($status) to $tag" && echo "  Committed locally")
+            # Commit only if there were changes (handled by git diff check below)
+            if [ -z "$(git diff --staged --name-only)" ]; then
+              echo "  No new files to commit for $repo_path"
+            else
+                git commit -m "Update $repo_path releases ($status) to $tag"
+                echo "  Committed locally"
+            fi
 
           done
 
-          git push
-          echo "All updates pushed."
+          # Final push if anything was added
+          git diff --staged --quiet || (git push && echo "All updates pushed.")
 
       # -------------------- UPDATE README --------------------
       - name: Update README between markers
@@ -237,9 +256,18 @@ jobs:
 
           TABLE=$(mktemp)
           first_repo=true
-          find releases -type f -name ".version" -printf "%h\n" | sort | while read -r repo_dir; do
+          
+          # Loop through all repo directories in the 'releases' folder
+          find releases -type d -name ".version" | sort | while read -r _; do
+             : # dummy to keep loop structure consistent with original logic if needed, but simplified below
+          done
+
+          # Better way: Find directories containing .version files
+          for repo_dir in $(find releases -mindepth 1 -maxdepth 1 -type d); do
+            [ ! -f "$repo_dir/.version" ] && continue
+            
             asset_count=$(find "$repo_dir" -type f ! -name ".version" ! -name "release.json" ! -name ".filter" | wc -l)
-            [ "$asset_count" -eq 0 ] && continue
+            if [ "$asset_count" -eq 0 ]; then continue; fi
 
             owner=$(basename "$(dirname "$repo_dir")")
             repo=$(basename "$repo_dir")
