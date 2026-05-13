@@ -161,12 +161,12 @@ sha256sum FILE_NAME
 
 ### 2dust--v2rayNG
 
-🔗 [source](https://github.com/2dust/v2rayNG) – [<code><small>2.1.7</small></code>](https://github.com/2dust/v2rayNG/releases/tag/2.1.7)
+🔗 [source](https://github.com/2dust/v2rayNG) – [<code><small>2.1.6</small></code>](https://github.com/2dust/v2rayNG/releases/tag/2.1.6)
 
 | File | Size | Download |
 |------|------|----------|
-| `v2rayNG_2.1.7-fdroid_arm64-v8a.apk` | 26.8 MB | [⬇️ Download](https://raw.githubusercontent.com/Mj23978/LatestReleaseMirror/main/releases/2dust/v2rayNG/v2rayNG_2.1.7-fdroid_arm64-v8a.apk) |
-| `v2rayNG_2.1.7_arm64-v8a.apk` | 26.8 MB | [⬇️ Download](https://raw.githubusercontent.com/Mj23978/LatestReleaseMirror/main/releases/2dust/v2rayNG/v2rayNG_2.1.7_arm64-v8a.apk) |
+| `v2rayNG_2.1.6-fdroid_arm64-v8a.apk` | 26.8 MB | [⬇️ Download](https://raw.githubusercontent.com/Mj23978/LatestReleaseMirror/main/releases/2dust/v2rayNG/v2rayNG_2.1.6-fdroid_arm64-v8a.apk) |
+| `v2rayNG_2.1.6_arm64-v8a.apk` | 26.8 MB | [⬇️ Download](https://raw.githubusercontent.com/Mj23978/LatestReleaseMirror/main/releases/2dust/v2rayNG/v2rayNG_2.1.6_arm64-v8a.apk) |
 
 ---
 
@@ -187,14 +187,30 @@ sha256sum FILE_NAME
 
 ### SagerNet--sing-box
 
-🔗 [source](https://github.com/SagerNet/sing-box) – [<code><small>v1.13.11</small></code>](https://github.com/SagerNet/sing-box/releases/tag/v1.13.11)
+🔗 [source](https://github.com/SagerNet/sing-box) – [<code><small>v1.14.0-alpha.23</small></code>](https://github.com/SagerNet/sing-box/releases/tag/v1.14.0-alpha.23)
 
 | File | Size | Download |
 |------|------|----------|
-| `SFA-1.13.11-arm64-v8a.apk` | 26.8 MB | [⬇️ Download](https://raw.githubusercontent.com/Mj23978/LatestReleaseMirror/main/releases/SagerNet/sing-box/SFA-1.13.11-arm64-v8a.apk) |
-| `SFA-1.13.11-legacy-android-5-arm64-v8a.apk` | 22.2 MB | [⬇️ Download](https://raw.githubusercontent.com/Mj23978/LatestReleaseMirror/main/releases/SagerNet/sing-box/SFA-1.13.11-legacy-android-5-arm64-v8a.apk) |
-| `sing-box-1.13.11-windows-amd64.zip` | 19.4 MB | [⬇️ Download](https://raw.githubusercontent.com/Mj23978/LatestReleaseMirror/main/releases/SagerNet/sing-box/sing-box-1.13.11-windows-amd64.zip) |
-| `sing-box-1.13.11-windows-amd64-legacy-windows-7.zip` | 15.1 MB | [⬇️ Download](https://raw.githubusercontent.com/Mj23978/LatestReleaseMirror/main/releases/SagerNet/sing-box/sing-box-1.13.11-windows-amd64-legacy-windows-7.zip) |
+| `SFA-1.14.0-alpha.23-arm64-v8a.apk` | 27.8 MB | [⬇️ Download](https://raw.githubusercontent.com/Mj23978/LatestReleaseMirror/main/releases/SagerNet/sing-box/SFA-1.14.0-alpha.23-arm64-v8a.apk) |
+| `SFA-1.14.0-alpha.23-legacy-android-5-arm64-v8a.apk` | 23.2 MB | [⬇️ Download](https://raw.githubusercontent.com/Mj23978/LatestReleaseMirror/main/releases/SagerNet/sing-box/SFA-1.14.0-alpha.23-legacy-android-5-arm64-v8a.apk) |
+| `sing-box-1.14.0-alpha.23-windows-amd64.zip` | 20.5 MB | [⬇️ Download](https://raw.githubusercontent.com/Mj23978/LatestReleaseMirror/main/releases/SagerNet/sing-box/sing-box-1.14.0-alpha.23-windows-amd64.zip) |
+| `sing-box-1.14.0-alpha.23-windows-amd64-legacy-windows-7.zip` | 16.2 MB | [⬇️ Download](https://raw.githubusercontent.com/Mj23978/LatestReleaseMirror/main/releases/SagerNet/sing-box/sing-box-1.14.0-alpha.23-windows-amd64-legacy-windows-7.zip) |
+
+---
+
+<div id="ajavadinezhad--zyrln"></div>
+
+### ajavadinezhad--zyrln
+
+🔗 [source](https://github.com/ajavadinezhad/zyrln) – [<code><small>v1.5.1-pre6</small></code>](https://github.com/ajavadinezhad/zyrln/releases/tag/v1.5.1-pre6)
+
+| File | Size | Download |
+|------|------|----------|
+| `zyrln-1.5.1-pre6.apk` | 24.3 MB | [⬇️ Download](https://raw.githubusercontent.com/Mj23978/LatestReleaseMirror/main/releases/ajavadinezhad/zyrln/zyrln-1.5.1-pre6.apk) |
+| `zyrln-1.5.1-pre6-darwin-amd64` | 11.0 MB | [⬇️ Download](https://raw.githubusercontent.com/Mj23978/LatestReleaseMirror/main/releases/ajavadinezhad/zyrln/zyrln-1.5.1-pre6-darwin-amd64) |
+| `zyrln-1.5.1-pre6-darwin-arm64` | 10.4 MB | [⬇️ Download](https://raw.githubusercontent.com/Mj23978/LatestReleaseMirror/main/releases/ajavadinezhad/zyrln/zyrln-1.5.1-pre6-darwin-arm64) |
+| `zyrln-1.5.1-pre6-linux-amd64` | 10.8 MB | [⬇️ Download](https://raw.githubusercontent.com/Mj23978/LatestReleaseMirror/main/releases/ajavadinezhad/zyrln/zyrln-1.5.1-pre6-linux-amd64) |
+| `zyrln-1.5.1-pre6-windows-amd64.exe` | 10.9 MB | [⬇️ Download](https://raw.githubusercontent.com/Mj23978/LatestReleaseMirror/main/releases/ajavadinezhad/zyrln/zyrln-1.5.1-pre6-windows-amd64.exe) |
 
 ---
 
